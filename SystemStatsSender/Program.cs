@@ -32,59 +32,106 @@ class Program
         }
     }
 
+    //private static string GetPerformanceStats()
+    //{
+    //    Random random = new Random();
+
+    //    int cpuUsage = random.Next(0, 101);
+    //    int gpuUsage = random.Next(0, 101);
+    //    int ramUsage = random.Next(0, 101);
+    //    int networkUsage = random.Next(0, 101);
+
+    //    return $"CPU: {cpuUsage}%, GPU: {gpuUsage}%, RAM: {ramUsage}%, Network: {networkUsage}%";
+    //}
+    private static int previousCpuUsage = 50;
+    private static int previousGpuUsage = 50;
+    private static int previousRamUsage = 50;
+    private static int previousNetworkUsage = 50;
     private static string GetPerformanceStats()
     {
         Random random = new Random();
 
-        int cpuUsage = random.Next(0, 101);
-        int gpuUsage = random.Next(0, 101);
-        int ramUsage = random.Next(0, 101);
-        int networkUsage = random.Next(0, 101);
+        // Function to simulate a natural fluctuation
+        int Fluctuate(int previousUsage)
+        {
+            int change = random.Next(-5, 6); // Random change between -5 and +5
+            int newValue = previousUsage + change;
 
-        return $"CPU: {cpuUsage}%, GPU: {gpuUsage}%, RAM: {ramUsage}%, Network: {networkUsage}%";
+            // Ensure values are within 0-100 range
+            if (newValue < 0) newValue = 0;
+            if (newValue > 100) newValue = 100;
+
+            return newValue;
+        }
+
+        // Generate new usage stats
+        previousCpuUsage = Fluctuate(previousCpuUsage);
+        previousGpuUsage = Fluctuate(previousGpuUsage);
+        previousRamUsage = Fluctuate(previousRamUsage);
+        previousNetworkUsage = Fluctuate(previousNetworkUsage);
+
+        return $"CPU: {previousCpuUsage}%, GPU: {previousGpuUsage}%, RAM: {previousRamUsage}%, Network: {previousNetworkUsage}%";
     }
     #region Stats
+    //private static PerformanceCounter cpuCounter;
+    //private static TimeSpan lastTotalProcessorTime;
+    //private static DateTime lastCpuCheckTime;
     //static void Main(string[] args)
     //{
+    //    //cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
     //    Console.WriteLine("System Performance Stats:\n");
-    //    double previousCpuUsage = 0;
-    //    double previousTotalProecssorTime = 0;
+    //    //cpuCounter.NextValue();
+    //    //Thread.Sleep(500);
+    //    lastTotalProcessorTime = Process.GetCurrentProcess().TotalProcessorTime;
+    //    lastCpuCheckTime = DateTime.UtcNow;
 
-    //    Process currentProcess = Process.GetCurrentProcess();
     //    while (true)
     //    {
-    //        //Console.Clear();
-    //        Console.WriteLine($"CPU Usage: {GetCpuUsage(currentProcess, ref previousTotalProecssorTime)}%");
-    //        Console.WriteLine($"Available RAM: {GetAvailableRAM()}%");
-    //        Console.WriteLine($"Total RAM: {GetTotalRAM()} MB");
-    //        Console.WriteLine("Disk Usage:");
-    //        foreach (var diskUsage in GetDiskUsage())
-    //        {
-    //            Console.WriteLine($"  {diskUsage.Key}: {diskUsage.Value}%");
-    //        }
+    //        Console.Clear();
+    //        Console.WriteLine($"CPU Usage: {GetCpuUsage()}%");
+    //        Console.WriteLine($"RAM USage: {GetAvailableRAM()}%");
+    //        //Console.WriteLine("Disk Usage:");
+    //        //foreach (var diskUsage in GetDiskUsage())
+    //        //{
+    //        //    Console.WriteLine($"  {diskUsage.Key}: {diskUsage.Value}%");
+    //        //}
     //        Console.WriteLine($"Network Usage: {GetNetworkUsage()}%");
     //        Console.WriteLine($"GPU Usage: {GetGpuUsage()}%");
     //        Console.WriteLine("--------------------------------------------------");
-    //        var system = 
-    //        //Thread.Sleep(500);
+    //        Thread.Sleep(500);
     //    }
     //}
 
-    //private static double GetCpuUsage(Process currentProcess, ref double previousTotalProcessorTime)
+    ////private static float GetCpuUsage()
+    ////{
+    ////    //var cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
+    ////    var currentCpuUsage = cpuCounter.NextValue();
+    ////    return currentCpuUsage;
+    ////}
+
+    //private static float GetCpuUsage()
     //{
-    //    double cpuUsage = 0;
-    //    double currentProcessorTime = currentProcess.TotalProcessorTime.TotalMilliseconds;
+    //    Process process = Process.GetCurrentProcess();
 
-    //    // Calculate the CPU usage percentage
-    //    if (previousTotalProcessorTime > 0)
-    //    {
-    //        cpuUsage = (currentProcessorTime - previousTotalProcessorTime) / Environment.ProcessorCount;
-    //    }
+    //    TimeSpan currentTotalProcessorTime = process.TotalProcessorTime;
+    //    DateTime currentTime = DateTime.UtcNow;
 
-    //    previousTotalProcessorTime = currentProcessorTime;
+    //    // Calculate the time difference
+    //    double cpuUsedMs = (currentTotalProcessorTime - lastTotalProcessorTime).TotalMilliseconds;
+    //    double totalPassedMs = (currentTime - lastCpuCheckTime).TotalMilliseconds;
+
+    //    // Update the stored values
+    //    lastTotalProcessorTime = currentTotalProcessorTime;
+    //    lastCpuCheckTime = currentTime;
+
+    //    // Number of logical processors
+    //    int cpuCores = Environment.ProcessorCount;
+
+    //    // Calculate the CPU usage as a percentage of the total processing time used by this app
+    //    float cpuUsage = (float)(cpuUsedMs / (totalPassedMs * cpuCores) * 100);
     //    return cpuUsage;
     //}
-
+    //// Get available RAM in percentage
     //private static float GetAvailableRAM()
     //{
     //    var ramCounter = new PerformanceCounter("Memory", "Available MBytes");
@@ -93,6 +140,7 @@ class Program
     //    return 100 - ((availableMemory / totalMemory) * 100);
     //}
 
+    //// Get total RAM in MB
     //private static float GetTotalRAM()
     //{
     //    ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT * FROM Win32_PhysicalMemory");
@@ -101,7 +149,7 @@ class Program
     //    {
     //        totalRam += Convert.ToUInt64(obj["Capacity"]);
     //    }
-    //    return (float)(totalRam / (1024 * 1024)); // Convert bytes to MB
+    //    return (float)(totalRam / (1024 * 1024));
     //}
 
     //private static Dictionary<string, float> GetDiskUsage()
@@ -122,9 +170,15 @@ class Program
     //private static float GetNetworkUsage()
     //{
     //    var networkCounter = new PerformanceCounter("Network Interface", "Bytes Total/sec", GetNetworkInterfaceName());
-    //    return networkCounter.NextValue();
+    //    float bytesPerSecond = networkCounter.NextValue();
+
+    //    // Assuming a maximum network bandwidth of 1 Gbps (Gigabit per second)
+    //    float maxBandwidth = 1_000_000_000 / 8; // Convert bits to bytes
+    //    //return (bytesPerSecond / maxBandwidth) * 100;
+    //    return bytesPerSecond;
     //}
 
+    //// Helper to get the first network interface name
     //private static string GetNetworkInterfaceName()
     //{
     //    PerformanceCounterCategory category = new PerformanceCounterCategory("Network Interface");
@@ -132,6 +186,7 @@ class Program
     //    return instanceNames.Length > 0 ? instanceNames[0] : "Not Found";
     //}
 
+    //// Get GPU usage (if supported)
     //private static float GetGpuUsage()
     //{
     //    try
