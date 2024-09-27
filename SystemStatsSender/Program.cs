@@ -1,17 +1,20 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Management;
-using System.Linq;
+﻿using System.Diagnostics;
 using System.Net.Sockets;
 using System.Net;
-using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
+using System;
 
 class Program
 {
+    static ManualResetEvent pausePerformanceDataThread = new ManualResetEvent(true);
+    static readonly object consoleLock = new object();
+
     static void Main()
     {
+        Thread udpBroadCastThread = new Thread(StartUdpBroadcast);
+        udpBroadCastThread.Start();
+
         TcpListener server = new TcpListener(IPAddress.Any, 5000);
         server.Start();
         Console.WriteLine("Server started");
@@ -19,189 +22,161 @@ class Program
         {
             TcpClient client = server.AcceptTcpClient();
             NetworkStream stream = client.GetStream();
-            Console.WriteLine("Conencting to client");
-            while (client.Connected)
+
+            Thread sendPerformanceDataThread = new Thread(() => SendPerformanceData(stream, client));
+            sendPerformanceDataThread.Start();
+
+            Thread handleCommandsThread = new Thread(() => HandleCommands(stream, sendPerformanceDataThread));
+            handleCommandsThread.Start();
+        }
+    }
+
+    private static void StartUdpBroadcast()
+    {
+        UdpClient udpServer = new UdpClient();
+        IPEndPoint endPoint = new IPEndPoint(IPAddress.Broadcast, 8888);
+
+        while (true)
+        {
+            string message = "SERVER_IP=" + GetLocalIPAddress() + ";PORT=5000";
+            byte[] buffer = Encoding.ASCII.GetBytes(message);
+            udpServer.Send(buffer, buffer.Length, endPoint);
+            Thread.Sleep(1000);
+        }
+    }
+
+    private static string GetLocalIPAddress()
+    {
+        var host = Dns.GetHostEntry(Dns.GetHostName());
+        foreach (var ip in host.AddressList)
+        {
+            if (ip.AddressFamily == AddressFamily.InterNetwork)
             {
-                //Console.WriteLine("Client connected");
-                string data = GetPerformanceStats();
-                Console.WriteLine($"Sending buffer {data}");
-                byte[] buffer = Encoding.ASCII.GetBytes(data);
-                stream.Write(buffer, 0, buffer.Length);
-                Thread.Sleep(1000);
+                return ip.ToString();
+            }
+        }
+        throw new Exception("No network adapters with an IPv4 address in the system!");
+    }
+
+    static bool shouldShowBuffer = true;
+    static bool isTroubleshooted = false;
+
+    private static void SendPerformanceData(NetworkStream stream, TcpClient client)
+    {
+        while (client.Connected && shouldShowBuffer)
+        {
+            //Console.WriteLine("\nClient Connected!");
+            pausePerformanceDataThread.WaitOne();
+
+            string data = GetPerformanceStats();
+            lock (consoleLock)
+            {
+                Console.Clear();
+                string[] split = data.Split(",");
+                Console.WriteLine("Sending Buffer:");
+                string[] stats = new string[] { "CPU", "GPU", "RAM1", "RAM2", "Disk" };
+                int i = 0;
+                foreach (var item in split)
+                {
+                    Console.WriteLine(stats[i] + " Usage:" + item);
+                    i++;
+                }
+                //Console.WriteLine($"Sending buffer: {data}");
+            }
+
+            byte[] buffer = Encoding.ASCII.GetBytes(data);
+            stream.Write(buffer, 0, buffer.Length);
+            Thread.Sleep(1000);
+        }
+    }
+
+    private static void HandleCommands(NetworkStream stream, Thread performanceDataThread)
+    {
+        while (true)
+        {
+            try
+            {
+                byte[] buffer = new byte[1024];
+                int bytesRead = stream.Read(buffer, 0, buffer.Length);
+                if (bytesRead == 0) break; // Handle disconnected clients
+
+                string command = Encoding.ASCII.GetString(buffer, 0, bytesRead).Trim();
+
+                if (command == "LAUNCH_APP")
+                {
+                    LaunchTroubleshoot(stream);
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"Error reading from stream: {e.Message}");
+                break;
             }
         }
     }
 
-    //private static string GetPerformanceStats()
-    //{
-    //    Random random = new Random();
+    private static void LaunchTroubleshoot(NetworkStream stream)
+    {
+        Console.WriteLine("Starting troubleshooting...");
 
-    //    int cpuUsage = random.Next(0, 101);
-    //    int gpuUsage = random.Next(0, 101);
-    //    int ramUsage = random.Next(0, 101);
-    //    int networkUsage = random.Next(0, 101);
+        pausePerformanceDataThread.Reset(); // Pause the thread
+        shouldShowBuffer = false;
 
-    //    return $"CPU: {cpuUsage}%, GPU: {gpuUsage}%, RAM: {ramUsage}%, Network: {networkUsage}%";
-    //}
+        for (int i = 0; i < 90; i += new Random().Next(6, 11))
+        {
+            lock (consoleLock)
+            {
+                Console.Clear();
+                string troubleshootingData = $"Troubleshooting: {i}%";
+                Console.Write(troubleshootingData);
+            }
+            var random = new Random();
+            var waitTime = random.Next(600, 1001);
+            Thread.Sleep(waitTime);
+        }
+
+        string failureMessage = "Troubleshooting failed!";
+        lock (consoleLock)
+        {
+            Console.WriteLine($"\n\n{failureMessage}");
+        }
+        byte[] failureBuffer = Encoding.ASCII.GetBytes(failureMessage);
+        isTroubleshooted = true;
+        stream.Write(failureBuffer, 0, failureBuffer.Length);
+
+        pausePerformanceDataThread.Set();
+    }
+
     private static int previousCpuUsage = 50;
-    private static int previousGpuUsage = 50;
-    private static int previousRamUsage = 50;
-    private static int previousNetworkUsage = 50;
+    private static int previousGpuUsage = 20;
+    private static int previousRam1Usage = 50;
+    private static int previousRam2Usage = 50;
+    private static int previousDiskUsage = 5;
+
     private static string GetPerformanceStats()
     {
         Random random = new Random();
 
-        // Function to simulate a natural fluctuation
-        int Fluctuate(int previousUsage)
+        int Fluctuate(int previousUsage, int lower = -2, int higher = 2)
         {
-            int change = random.Next(-5, 6); // Random change between -5 and +5
+            int change = random.Next(lower, higher);
             int newValue = previousUsage + change;
 
-            // Ensure values are within 0-100 range
             if (newValue < 0) newValue = 0;
             if (newValue > 100) newValue = 100;
 
             return newValue;
         }
 
-        // Generate new usage stats
-        previousCpuUsage = Fluctuate(previousCpuUsage);
-        previousGpuUsage = Fluctuate(previousGpuUsage);
-        previousRamUsage = Fluctuate(previousRamUsage);
-        previousNetworkUsage = Fluctuate(previousNetworkUsage);
+        previousCpuUsage = Math.Clamp(Fluctuate(previousCpuUsage), 30, 65);
+        previousGpuUsage = Math.Clamp(Fluctuate(previousGpuUsage), 30, 65);
+        previousRam1Usage = Fluctuate(previousRam1Usage);
+        previousRam2Usage = Fluctuate(previousRam2Usage);
+        previousDiskUsage = Math.Clamp(Fluctuate(previousDiskUsage, -1, 1), 2, 7);
 
-        return $"CPU: {previousCpuUsage}%, GPU: {previousGpuUsage}%, RAM: {previousRamUsage}%, Network: {previousNetworkUsage}%";
+        string ram1Usage = isTroubleshooted ? previousRam1Usage.ToString() + "%" : "100%";
+        string ram2Usage = isTroubleshooted ? previousRam2Usage.ToString() + "%" : "Unidentified";
+
+        return $"{previousCpuUsage}%,{previousGpuUsage}%,{ram1Usage},{ram2Usage},{previousDiskUsage}%";
     }
-    #region Stats
-    //private static PerformanceCounter cpuCounter;
-    //private static TimeSpan lastTotalProcessorTime;
-    //private static DateTime lastCpuCheckTime;
-    //static void Main(string[] args)
-    //{
-    //    //cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
-    //    Console.WriteLine("System Performance Stats:\n");
-    //    //cpuCounter.NextValue();
-    //    //Thread.Sleep(500);
-    //    lastTotalProcessorTime = Process.GetCurrentProcess().TotalProcessorTime;
-    //    lastCpuCheckTime = DateTime.UtcNow;
-
-    //    while (true)
-    //    {
-    //        Console.Clear();
-    //        Console.WriteLine($"CPU Usage: {GetCpuUsage()}%");
-    //        Console.WriteLine($"RAM USage: {GetAvailableRAM()}%");
-    //        //Console.WriteLine("Disk Usage:");
-    //        //foreach (var diskUsage in GetDiskUsage())
-    //        //{
-    //        //    Console.WriteLine($"  {diskUsage.Key}: {diskUsage.Value}%");
-    //        //}
-    //        Console.WriteLine($"Network Usage: {GetNetworkUsage()}%");
-    //        Console.WriteLine($"GPU Usage: {GetGpuUsage()}%");
-    //        Console.WriteLine("--------------------------------------------------");
-    //        Thread.Sleep(500);
-    //    }
-    //}
-
-    ////private static float GetCpuUsage()
-    ////{
-    ////    //var cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
-    ////    var currentCpuUsage = cpuCounter.NextValue();
-    ////    return currentCpuUsage;
-    ////}
-
-    //private static float GetCpuUsage()
-    //{
-    //    Process process = Process.GetCurrentProcess();
-
-    //    TimeSpan currentTotalProcessorTime = process.TotalProcessorTime;
-    //    DateTime currentTime = DateTime.UtcNow;
-
-    //    // Calculate the time difference
-    //    double cpuUsedMs = (currentTotalProcessorTime - lastTotalProcessorTime).TotalMilliseconds;
-    //    double totalPassedMs = (currentTime - lastCpuCheckTime).TotalMilliseconds;
-
-    //    // Update the stored values
-    //    lastTotalProcessorTime = currentTotalProcessorTime;
-    //    lastCpuCheckTime = currentTime;
-
-    //    // Number of logical processors
-    //    int cpuCores = Environment.ProcessorCount;
-
-    //    // Calculate the CPU usage as a percentage of the total processing time used by this app
-    //    float cpuUsage = (float)(cpuUsedMs / (totalPassedMs * cpuCores) * 100);
-    //    return cpuUsage;
-    //}
-    //// Get available RAM in percentage
-    //private static float GetAvailableRAM()
-    //{
-    //    var ramCounter = new PerformanceCounter("Memory", "Available MBytes");
-    //    float availableMemory = ramCounter.NextValue();
-    //    float totalMemory = GetTotalRAM();
-    //    return 100 - ((availableMemory / totalMemory) * 100);
-    //}
-
-    //// Get total RAM in MB
-    //private static float GetTotalRAM()
-    //{
-    //    ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT * FROM Win32_PhysicalMemory");
-    //    ulong totalRam = 0;
-    //    foreach (ManagementObject obj in searcher.Get())
-    //    {
-    //        totalRam += Convert.ToUInt64(obj["Capacity"]);
-    //    }
-    //    return (float)(totalRam / (1024 * 1024));
-    //}
-
-    //private static Dictionary<string, float> GetDiskUsage()
-    //{
-    //    var diskUsage = new Dictionary<string, float>();
-    //    var searcher = new ManagementObjectSearcher("SELECT * FROM Win32_LogicalDisk WHERE DriveType = 3");
-    //    foreach (ManagementObject disk in searcher.Get())
-    //    {
-    //        string diskName = disk["DeviceID"].ToString();
-    //        ulong freeSpace = (ulong)disk["FreeSpace"];
-    //        ulong totalSpace = (ulong)disk["Size"];
-    //        float usagePercent = ((totalSpace - freeSpace) / (float)totalSpace) * 100;
-    //        diskUsage[diskName] = usagePercent;
-    //    }
-    //    return diskUsage;
-    //}
-
-    //private static float GetNetworkUsage()
-    //{
-    //    var networkCounter = new PerformanceCounter("Network Interface", "Bytes Total/sec", GetNetworkInterfaceName());
-    //    float bytesPerSecond = networkCounter.NextValue();
-
-    //    // Assuming a maximum network bandwidth of 1 Gbps (Gigabit per second)
-    //    float maxBandwidth = 1_000_000_000 / 8; // Convert bits to bytes
-    //    //return (bytesPerSecond / maxBandwidth) * 100;
-    //    return bytesPerSecond;
-    //}
-
-    //// Helper to get the first network interface name
-    //private static string GetNetworkInterfaceName()
-    //{
-    //    PerformanceCounterCategory category = new PerformanceCounterCategory("Network Interface");
-    //    var instanceNames = category.GetInstanceNames();
-    //    return instanceNames.Length > 0 ? instanceNames[0] : "Not Found";
-    //}
-
-    //// Get GPU usage (if supported)
-    //private static float GetGpuUsage()
-    //{
-    //    try
-    //    {
-    //        var searcher = new ManagementObjectSearcher("SELECT LoadPercentage FROM Win32_VideoController");
-    //        foreach (ManagementObject gpu in searcher.Get())
-    //        {
-    //            return Convert.ToSingle(gpu["LoadPercentage"]);
-    //        }
-    //    }
-    //    catch (Exception ex)
-    //    {
-    //        Console.WriteLine($"Error retrieving GPU usage: {ex.Message}");
-    //    }
-    //    return 0; // Return 0 if GPU usage cannot be determined
-    //}
-    #endregion
 }
